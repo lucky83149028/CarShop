@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity >=0.6.0;
 
-import "@openzeppelin/contracts/introspection/IERC165.sol";
 import "@openzeppelin/contracts/introspection/ERC165.sol";
 import "@openzeppelin/contracts/utils/Address.sol";
 import "@openzeppelin/contracts/utils/EnumerableMap.sol";
@@ -19,7 +18,7 @@ import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
  * @title Hashmasks contract
  * @dev Extends ERC721 Non-Fungible Token Standard basic implementation
  */
-contract Masks is Context, Ownable, ERC165, IERC721Metadata {
+contract CarShop is Context, Ownable, ERC165, IERC721Metadata {
     using SafeMath for uint256;
     using Address for address;
     using EnumerableSet for EnumerableSet.UintSet;
@@ -28,44 +27,23 @@ contract Masks is Context, Ownable, ERC165, IERC721Metadata {
 
     // Public variables
 
-    // This is the provenance record of all Hashmasks artwork in existence
-    string public constant HASHMASKS_PROVENANCE = "df760c771ad006eace0d705383b74158967e78c6e980b35f670249b5822c42e1";
+    // Mapping from holder address to their (enumerable) set of owned cars
+    mapping (address => EnumerableSet.UintSet) private _holderCars;
 
-    uint256 public constant SALE_START_TIMESTAMP = 1611846000;
+    // Enumerable mapping from car ids to their owners
+    EnumerableMap.UintToAddressMap private _carOwners;
 
-    // Time after which hash masks are randomized and allotted
-    uint256 public constant REVEAL_TIMESTAMP = SALE_START_TIMESTAMP + (86400 * 14);
+    // Mapping from car ID to approved address
+    mapping (uint256 => address) private _carApprovals;
 
-    uint256 public constant NAME_CHANGE_PRICE = 1830 * (10 ** 18);
-
-    uint256 public constant MAX_NFT_SUPPLY = 16384;
-
-    uint256 public startingIndex;
-
-    // Equals to `bytes4(keccak256("onERC721Received(address,address,uint256,bytes)"))`
-    // which can be also obtained as `IERC721Receiver(0).onERC721Received.selector`
-    bytes4 private constant _ERC721_RECEIVED = 0x150b7a02;
-
-    // Mapping from holder address to their (enumerable) set of owned tokens
-    mapping (address => EnumerableSet.UintSet) private _holderTokens;
-
-    // Enumerable mapping from token ids to their owners
-    EnumerableMap.UintToAddressMap private _tokenOwners;
-
-    // Mapping from token ID to approved address
-    mapping (uint256 => address) private _tokenApprovals;
-
-    // Mapping from token ID to name
-    mapping (uint256 => string) private _tokenName;
+    // Mapping from car ID to name
+    mapping (uint256 => string) private _carName;
 
     // Mapping if certain name string has already been reserved
     mapping (string => bool) private _nameReserved;
 
-    // Mapping from token ID to price
-    mapping (uint256 => uint256) private _tokenPrice;
-
-    // Mapping from token ID to whether the Hashmask was minted before reveal
-    mapping (uint256 => bool) private _mintedBeforeReveal;
+    // Mapping from car ID to price
+    mapping (uint256 => uint256) private _carPrice;
 
     // Mapping from owner to operator approvals
     mapping (address => mapping (address => bool)) private _operatorApprovals;
@@ -76,58 +54,16 @@ contract Masks is Context, Ownable, ERC165, IERC721Metadata {
     // Token symbol
     string private _symbol;
 
-    // Name change token address
-    address private _nctAddress;
-
-    /*
-     *     bytes4(keccak256('balanceOf(address)')) == 0x70a08231
-     *     bytes4(keccak256('ownerOf(uint256)')) == 0x6352211e
-     *     bytes4(keccak256('approve(address,uint256)')) == 0x095ea7b3
-     *     bytes4(keccak256('getApproved(uint256)')) == 0x081812fc
-     *     bytes4(keccak256('setApprovalForAll(address,bool)')) == 0xa22cb465
-     *     bytes4(keccak256('isApprovedForAll(address,address)')) == 0xe985e9c5
-     *     bytes4(keccak256('transferFrom(address,address,uint256)')) == 0x23b872dd
-     *     bytes4(keccak256('safeTransferFrom(address,address,uint256)')) == 0x42842e0e
-     *     bytes4(keccak256('safeTransferFrom(address,address,uint256,bytes)')) == 0xb88d4fde
-     *
-     *     => 0x70a08231 ^ 0x6352211e ^ 0x095ea7b3 ^ 0x081812fc ^
-     *        0xa22cb465 ^ 0xe985e9c5 ^ 0x23b872dd ^ 0x42842e0e ^ 0xb88d4fde == 0x80ac58cd
-     */
-    bytes4 private constant _INTERFACE_ID_ERC721 = 0x80ac58cd;
-
-    /*
-     *     bytes4(keccak256('name()')) == 0x06fdde03
-     *     bytes4(keccak256('symbol()')) == 0x95d89b41
-     *
-     *     => 0x06fdde03 ^ 0x95d89b41 == 0x93254542
-     */
-    bytes4 private constant _INTERFACE_ID_ERC721_METADATA = 0x93254542;
-
-    /*
-     *     bytes4(keccak256('totalSupply()')) == 0x18160ddd
-     *     bytes4(keccak256('tokenOfOwnerByIndex(address,uint256)')) == 0x2f745c59
-     *     bytes4(keccak256('tokenByIndex(uint256)')) == 0x4f6ccce7
-     *
-     *     => 0x18160ddd ^ 0x2f745c59 ^ 0x4f6ccce7 == 0x780e9d63
-     */
-    bytes4 private constant _INTERFACE_ID_ERC721_ENUMERABLE = 0x780e9d63;
-
     // Events
     event NameChange (uint256 indexed maskIndex, string newName);
-    event Sold (address indexed to, uint256 indexed tokenId);
+    event Sold (address indexed to, uint256 indexed carId);
 
     /**
      * @dev Initializes the contract by setting a `name` and a `symbol` to the token collection.
      */
-    constructor (string memory name, string memory symbol, address nctAddress) public {
+    constructor (string memory name, string memory symbol) public {
         _name = name;
         _symbol = symbol;
-        _nctAddress = nctAddress;
-
-        // register the supported interfaces to conform to ERC721 via ERC165
-        _registerInterface(_INTERFACE_ID_ERC721);
-        _registerInterface(_INTERFACE_ID_ERC721_METADATA);
-        _registerInterface(_INTERFACE_ID_ERC721_ENUMERABLE);
     }
 
     /**
@@ -136,14 +72,14 @@ contract Masks is Context, Ownable, ERC165, IERC721Metadata {
     function balanceOf(address owner) public view override returns (uint256) {
         require(owner != address(0), "ERC721: balance query for the zero address");
 
-        return _holderTokens[owner].length();
+        return _holderCars[owner].length();
     }
 
     /**
      * @dev See {IERC721-ownerOf}.
      */
-    function ownerOf(uint256 tokenId) public view override returns (address) {
-        return _tokenOwners.get(tokenId, "ERC721: owner query for nonexistent token");
+    function ownerOf(uint256 carId) public view override returns (address) {
+        return _carOwners.get(carId, "ERC721: owner query for nonexistent car");
     }
 
     /**
@@ -163,7 +99,7 @@ contract Masks is Context, Ownable, ERC165, IERC721Metadata {
     /**
      * @dev See {IERC721Metadata-tokenURI}.
      */
-    function tokenURI(uint256 tokenId) external view override returns (string memory) {
+    function tokenURI(uint256 carId) external view override returns (string memory) {
         return "";
     }
 
@@ -171,30 +107,30 @@ contract Masks is Context, Ownable, ERC165, IERC721Metadata {
      * @dev See {IERC721Enumerable-tokenOfOwnerByIndex}.
      */
     function tokenOfOwnerByIndex(address owner, uint256 index) public view returns (uint256) {
-        return _holderTokens[owner].at(index);
+        return _holderCars[owner].at(index);
     }
 
     /**
      * @dev See {IERC721Enumerable-totalSupply}.
      */
     function totalSupply() public view returns (uint256) {
-        // _tokenOwners are indexed by tokenIds, so .length() returns the number of tokenIds
-        return _tokenOwners.length();
+        // _carOwners are indexed by tokenIds, so .length() returns the number of tokenIds
+        return _carOwners.length();
     }
 
     /**
      * @dev See {IERC721Enumerable-tokenByIndex}.
      */
     function tokenByIndex(uint256 index) public view returns (uint256) {
-        (uint256 tokenId, ) = _tokenOwners.at(index);
-        return tokenId;
+        (uint256 carId, ) = _carOwners.at(index);
+        return carId;
     }
 
     /**
      * @dev Returns name of the NFT at index.
      */
     function tokenNameByIndex(uint256 index) public view returns (string memory) {
-        return _tokenName[index];
+        return _carName[index];
     }
 
     /**
@@ -207,8 +143,8 @@ contract Masks is Context, Ownable, ERC165, IERC721Metadata {
     /**
      * @dev Returns name of the NFT at index.
      */
-    function tokenPriceByIndex(uint256 index) external view returns (uint256) {
-        return _tokenPrice[index];
+    function carPriceByIndex(uint256 index) external view returns (uint256) {
+        return _carPrice[index];
     }
 
     /**
@@ -217,59 +153,56 @@ contract Masks is Context, Ownable, ERC165, IERC721Metadata {
     function addNewCar(uint256 price) onlyOwner external {
         uint mintIndex = totalSupply();
         _safeMint(msg.sender, mintIndex);
-        _tokenPrice[mintIndex] = price;
+        _carPrice[mintIndex] = price;
     }
 
     /**
     * @dev Sell the car
     */
-    function sellCar(address to, uint256 tokenId) onlyOwner external {
-        safeTransferFrom(_msgSender(), to, tokenId);
-        emit Sold(to, tokenId);
+    function sellCar(address to, uint256 carId) onlyOwner external {
+        safeTransferFrom(_msgSender(), to, carId);
+        emit Sold(to, carId);
     }
 
     /**
-     * @dev Changes the name for Hashmask tokenId
+     * @dev Changes the name for car
      */
-    function changeName(uint256 tokenId, string memory newName) public {
-        address owner = ownerOf(tokenId);
-
-        require(_msgSender() == owner, "ERC721: caller is not the owner");
+    function changeName(uint256 carId, string memory newName) onlyOwner external {
         require(validateName(newName) == true, "Not a valid new name");
-        require(sha256(bytes(newName)) != sha256(bytes(_tokenName[tokenId])), "New name is same as the current one");
+        require(sha256(bytes(newName)) != sha256(bytes(_carName[carId])), "New name is same as the current one");
         require(isNameReserved(newName) == false, "Name already reserved");
 
         // If already named, dereserve old name
-        if (bytes(_tokenName[tokenId]).length > 0) {
-            toggleReserveName(_tokenName[tokenId], false);
+        if (bytes(_carName[carId]).length > 0) {
+            toggleReserveName(_carName[carId], false);
         }
         toggleReserveName(newName, true);
-        _tokenName[tokenId] = newName;
+        _carName[carId] = newName;
 
-        emit NameChange(tokenId, newName);
+        emit NameChange(carId, newName);
     }
 
     /**
      * @dev See {IERC721-approve}.
      */
-    function approve(address to, uint256 tokenId) public virtual override {
-        address owner = ownerOf(tokenId);
+    function approve(address to, uint256 carId) public virtual override {
+        address owner = ownerOf(carId);
         require(to != owner, "ERC721: approval to current owner");
 
         require(_msgSender() == owner || isApprovedForAll(owner, _msgSender()),
             "ERC721: approve caller is not owner nor approved for all"
         );
 
-        _approve(to, tokenId);
+        _approve(to, carId);
     }
 
     /**
      * @dev See {IERC721-getApproved}.
      */
-    function getApproved(uint256 tokenId) public view override returns (address) {
-        require(_exists(tokenId), "ERC721: approved query for nonexistent token");
+    function getApproved(uint256 carId) public view override returns (address) {
+        require(_exists(carId), "ERC721: approved query for nonexistent car");
 
-        return _tokenApprovals[tokenId];
+        return _carApprovals[carId];
     }
 
     /**
@@ -292,30 +225,30 @@ contract Masks is Context, Ownable, ERC165, IERC721Metadata {
     /**
      * @dev See {IERC721-transferFrom}.
      */
-    function transferFrom(address from, address to, uint256 tokenId) public virtual override {
+    function transferFrom(address from, address to, uint256 carId) public virtual override {
         //solhint-disable-next-line max-line-length
-        require(_isApprovedOrOwner(_msgSender(), tokenId), "ERC721: transfer caller is not owner nor approved");
+        require(_isApprovedOrOwner(_msgSender(), carId), "ERC721: transfer caller is not owner nor approved");
 
-        _transfer(from, to, tokenId);
+        _transfer(from, to, carId);
     }
 
     /**
      * @dev See {IERC721-safeTransferFrom}.
      */
-    function safeTransferFrom(address from, address to, uint256 tokenId) public virtual override {
-        safeTransferFrom(from, to, tokenId, "");
+    function safeTransferFrom(address from, address to, uint256 carId) public virtual override {
+        safeTransferFrom(from, to, carId, "");
     }
 
     /**
      * @dev See {IERC721-safeTransferFrom}.
      */
-    function safeTransferFrom(address from, address to, uint256 tokenId, bytes memory _data) public virtual override {
-        require(_isApprovedOrOwner(_msgSender(), tokenId), "ERC721: transfer caller is not owner nor approved");
-        _safeTransfer(from, to, tokenId);
+    function safeTransferFrom(address from, address to, uint256 carId, bytes memory _data) public virtual override {
+        require(_isApprovedOrOwner(_msgSender(), carId), "ERC721: transfer caller is not owner nor approved");
+        _safeTransfer(from, to, carId);
     }
 
     /**
-     * @dev Safely transfers `tokenId` token from `from` to `to`, checking first that contract recipients
+     * @dev Safely transfers `carId` car from `from` to `to`, checking first that contract recipients
      * are aware of the ERC721 protocol to prevent tokens from being forever locked.
      *
      * `_data` is additional data, it has no specified format and it is sent in call to `to`.
@@ -327,133 +260,133 @@ contract Masks is Context, Ownable, ERC165, IERC721Metadata {
      *
      * - `from` cannot be the zero address.
      * - `to` cannot be the zero address.
-     * - `tokenId` token must exist and be owned by `from`.
+     * - `carId` car must exist and be owned by `from`.
      *
      * Emits a {Transfer} event.
      */
-    function _safeTransfer(address from, address to, uint256 tokenId) internal virtual {
-        _transfer(from, to, tokenId);
+    function _safeTransfer(address from, address to, uint256 carId) internal virtual {
+        _transfer(from, to, carId);
     }
 
     /**
-     * @dev Returns whether `tokenId` exists.
+     * @dev Returns whether `carId` exists.
      *
      * Tokens can be managed by their owner or approved accounts via {approve} or {setApprovalForAll}.
      *
      * Tokens start existing when they are minted (`_mint`),
      * and stop existing when they are burned (`_burn`).
      */
-    function _exists(uint256 tokenId) internal view returns (bool) {
-        return _tokenOwners.contains(tokenId);
+    function _exists(uint256 carId) internal view returns (bool) {
+        return _carOwners.contains(carId);
     }
 
     /**
-     * @dev Returns whether `spender` is allowed to manage `tokenId`.
+     * @dev Returns whether `spender` is allowed to manage `carId`.
      *
      * Requirements:
      *
-     * - `tokenId` must exist.
+     * - `carId` must exist.
      */
-    function _isApprovedOrOwner(address spender, uint256 tokenId) internal view returns (bool) {
-        require(_exists(tokenId), "ERC721: operator query for nonexistent token");
-        address owner = ownerOf(tokenId);
-        return (spender == owner || getApproved(tokenId) == spender || isApprovedForAll(owner, spender));
+    function _isApprovedOrOwner(address spender, uint256 carId) internal view returns (bool) {
+        require(_exists(carId), "ERC721: operator query for nonexistent car");
+        address owner = ownerOf(carId);
+        return (spender == owner || getApproved(carId) == spender || isApprovedForAll(owner, spender));
     }
 
     /**
-     * @dev Safely mints `tokenId` and transfers it to `to`.
+     * @dev Safely mints `carId` and transfers it to `to`.
      *
      * Requirements:
      *
-     * - `tokenId` must not exist.
+     * - `carId` must not exist.
      *
      * Emits a {Transfer} event.
      */
-    function _safeMint(address to, uint256 tokenId) internal virtual {
-        _mint(to, tokenId);
+    function _safeMint(address to, uint256 carId) internal virtual {
+        _mint(to, carId);
     }
 
     /**
-     * @dev Mints `tokenId` and transfers it to `to`.
+     * @dev Mints `carId` and transfers it to `to`.
      *
      * WARNING: Usage of this method is discouraged, use {_safeMint} whenever possible
      *
      * Requirements:
      *
-     * - `tokenId` must not exist.
+     * - `carId` must not exist.
      * - `to` cannot be the zero address.
      *
      * Emits a {Transfer} event.
      */
-    function _mint(address to, uint256 tokenId) internal virtual {
+    function _mint(address to, uint256 carId) internal virtual {
         require(to != address(0), "ERC721: mint to the zero address");
-        require(!_exists(tokenId), "ERC721: token already minted");
+        require(!_exists(carId), "ERC721: token already minted");
 
-        _beforeTokenTransfer(address(0), to, tokenId);
+        _beforeTokenTransfer(address(0), to, carId);
 
-        _holderTokens[to].add(tokenId);
+        _holderCars[to].add(carId);
 
-        _tokenOwners.set(tokenId, to);
+        _carOwners.set(carId, to);
 
-        emit Transfer(address(0), to, tokenId);
+        emit Transfer(address(0), to, carId);
     }
 
     /**
-     * @dev Destroys `tokenId`.
+     * @dev Destroys `carId`.
      * The approval is cleared when the token is burned.
      *
      * Requirements:
      *
-     * - `tokenId` must exist.
+     * - `carId` must exist.
      *
      * Emits a {Transfer} event.
      */
-    function _burn(uint256 tokenId) internal virtual {
-        address owner = ownerOf(tokenId);
+    function _burn(uint256 carId) internal virtual {
+        address owner = ownerOf(carId);
 
-        _beforeTokenTransfer(owner, address(0), tokenId);
+        _beforeTokenTransfer(owner, address(0), carId);
 
         // Clear approvals
-        _approve(address(0), tokenId);
+        _approve(address(0), carId);
 
-        _holderTokens[owner].remove(tokenId);
+        _holderCars[owner].remove(carId);
 
-        _tokenOwners.remove(tokenId);
+        _carOwners.remove(carId);
 
-        emit Transfer(owner, address(0), tokenId);
+        emit Transfer(owner, address(0), carId);
     }
 
     /**
-     * @dev Transfers `tokenId` from `from` to `to`.
+     * @dev Transfers `carId` from `from` to `to`.
      *  As opposed to {transferFrom}, this imposes no restrictions on msg.sender.
      *
      * Requirements:
      *
      * - `to` cannot be the zero address.
-     * - `tokenId` token must be owned by `from`.
+     * - `carId` car must be owned by `from`.
      *
      * Emits a {Transfer} event.
      */
-    function _transfer(address from, address to, uint256 tokenId) internal virtual {
-        require(ownerOf(tokenId) == from, "ERC721: transfer of token that is not own");
+    function _transfer(address from, address to, uint256 carId) internal virtual {
+        require(ownerOf(carId) == from, "ERC721: transfer of car that is not own");
         require(to != address(0), "ERC721: transfer to the zero address");
 
-        _beforeTokenTransfer(from, to, tokenId);
+        _beforeTokenTransfer(from, to, carId);
 
         // Clear approvals from the previous owner
-        _approve(address(0), tokenId);
+        _approve(address(0), carId);
 
-        _holderTokens[from].remove(tokenId);
-        _holderTokens[to].add(tokenId);
+        _holderCars[from].remove(carId);
+        _holderCars[to].add(carId);
 
-        _tokenOwners.set(tokenId, to);
+        _carOwners.set(carId, to);
 
-        emit Transfer(from, to, tokenId);
+        emit Transfer(from, to, carId);
     }
 
-    function _approve(address to, uint256 tokenId) private {
-        _tokenApprovals[tokenId] = to;
-        emit Approval(ownerOf(tokenId), to, tokenId);
+    function _approve(address to, uint256 carId) private {
+        _carApprovals[carId] = to;
+        emit Approval(ownerOf(carId), to, carId);
     }
 
     /**
@@ -462,16 +395,16 @@ contract Masks is Context, Ownable, ERC165, IERC721Metadata {
      *
      * Calling conditions:
      *
-     * - When `from` and `to` are both non-zero, ``from``'s `tokenId` will be
+     * - When `from` and `to` are both non-zero, ``from``'s `carId` will be
      * transferred to `to`.
-     * - When `from` is zero, `tokenId` will be minted for `to`.
-     * - When `to` is zero, ``from``'s `tokenId` will be burned.
+     * - When `from` is zero, `carId` will be minted for `to`.
+     * - When `to` is zero, ``from``'s `carId` will be burned.
      * - `from` cannot be the zero address.
      * - `to` cannot be the zero address.
      *
      * To learn more about hooks, head to xref:ROOT:extending-contracts.adoc#using-hooks[Using Hooks].
      */
-    function _beforeTokenTransfer(address from, address to, uint256 tokenId) internal virtual { }
+    function _beforeTokenTransfer(address from, address to, uint256 carId) internal virtual { }
 
     /**
      * @dev Reserves the name if isReserve is set to true, de-reserves if set to false
