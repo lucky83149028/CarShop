@@ -14,15 +14,12 @@ import "@openzeppelin/contracts/token/ERC721/IERC721Enumerable.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721Metadata.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 
-import "./IERC20.sol";
-import "./IMasks.sol";
-
 
 /**
  * @title Hashmasks contract
  * @dev Extends ERC721 Non-Fungible Token Standard basic implementation
  */
-contract Masks is Context, Ownable, ERC165, IMasks, IERC721Metadata {
+contract Masks is Context, Ownable, ERC165, IERC721Metadata {
     using SafeMath for uint256;
     using Address for address;
     using EnumerableSet for EnumerableSet.UintSet;
@@ -42,8 +39,6 @@ contract Masks is Context, Ownable, ERC165, IMasks, IERC721Metadata {
     uint256 public constant NAME_CHANGE_PRICE = 1830 * (10 ** 18);
 
     uint256 public constant MAX_NFT_SUPPLY = 16384;
-
-    uint256 public startingIndexBlock;
 
     uint256 public startingIndex;
 
@@ -65,6 +60,9 @@ contract Masks is Context, Ownable, ERC165, IMasks, IERC721Metadata {
 
     // Mapping if certain name string has already been reserved
     mapping (string => bool) private _nameReserved;
+
+    // Mapping from token ID to price
+    mapping (uint256 => uint256) private _tokenPrice;
 
     // Mapping from token ID to whether the Hashmask was minted before reveal
     mapping (uint256 => bool) private _mintedBeforeReveal;
@@ -116,6 +114,7 @@ contract Masks is Context, Ownable, ERC165, IMasks, IERC721Metadata {
 
     // Events
     event NameChange (uint256 indexed maskIndex, string newName);
+    event Sold (address indexed to, uint256 indexed tokenId);
 
     /**
      * @dev Initializes the contract by setting a `name` and a `symbol` to the token collection.
@@ -171,14 +170,14 @@ contract Masks is Context, Ownable, ERC165, IMasks, IERC721Metadata {
     /**
      * @dev See {IERC721Enumerable-tokenOfOwnerByIndex}.
      */
-    function tokenOfOwnerByIndex(address owner, uint256 index) public view override returns (uint256) {
+    function tokenOfOwnerByIndex(address owner, uint256 index) public view returns (uint256) {
         return _holderTokens[owner].at(index);
     }
 
     /**
      * @dev See {IERC721Enumerable-totalSupply}.
      */
-    function totalSupply() public view override returns (uint256) {
+    function totalSupply() public view returns (uint256) {
         // _tokenOwners are indexed by tokenIds, so .length() returns the number of tokenIds
         return _tokenOwners.length();
     }
@@ -186,7 +185,7 @@ contract Masks is Context, Ownable, ERC165, IMasks, IERC721Metadata {
     /**
      * @dev See {IERC721Enumerable-tokenByIndex}.
      */
-    function tokenByIndex(uint256 index) public view override returns (uint256) {
+    function tokenByIndex(uint256 index) public view returns (uint256) {
         (uint256 tokenId, ) = _tokenOwners.at(index);
         return tokenId;
     }
@@ -206,80 +205,27 @@ contract Masks is Context, Ownable, ERC165, IMasks, IERC721Metadata {
     }
 
     /**
-     * @dev Returns if the NFT has been minted before reveal phase
+     * @dev Returns name of the NFT at index.
      */
-    function isMintedBeforeReveal(uint256 index) public view override returns (bool) {
-        return _mintedBeforeReveal[index];
+    function tokenPriceByIndex(uint256 index) external view returns (uint256) {
+        return _tokenPrice[index];
     }
 
     /**
-     * @dev Gets current Hashmask Price
-     */
-    function getNFTPrice() public view returns (uint256) {
-        require(block.timestamp >= SALE_START_TIMESTAMP, "Sale has not started");
-        require(totalSupply() < MAX_NFT_SUPPLY, "Sale has already ended");
-
-        uint currentSupply = totalSupply();
-
-        if (currentSupply >= 16381) {
-            return 100000000000000000000; // 16381 - 16383 100 ETH
-        } else if (currentSupply >= 16000) {
-            return 3000000000000000000; // 16000 - 16380 3.0 ETH
-        } else if (currentSupply >= 15000) {
-            return 1700000000000000000; // 15000  - 15999 1.7 ETH
-        } else if (currentSupply >= 11000) {
-            return 900000000000000000; // 11000 - 14999 0.9 ETH
-        } else if (currentSupply >= 7000) {
-            return 500000000000000000; // 7000 - 10999 0.5 ETH
-        } else if (currentSupply >= 3000) {
-            return 300000000000000000; // 3000 - 6999 0.3 ETH
-        } else {
-            return 100000000000000000; // 0 - 2999 0.1 ETH 
-        }
-    }
-
-    /**
-    * @dev Mints Masks
+    * @dev Add a new car
     */
-    function mintNFT(uint256 numberOfNfts) public payable {
-        require(totalSupply() < MAX_NFT_SUPPLY, "Sale has already ended");
-        require(numberOfNfts > 0, "numberOfNfts cannot be 0");
-        require(numberOfNfts <= 20, "You may not buy more than 20 NFTs at once");
-        require(totalSupply().add(numberOfNfts) <= MAX_NFT_SUPPLY, "Exceeds MAX_NFT_SUPPLY");
-        require(getNFTPrice().mul(numberOfNfts) == msg.value, "Ether value sent is not correct");
-
-        for (uint i = 0; i < numberOfNfts; i++) {
-            uint mintIndex = totalSupply();
-            if (block.timestamp < REVEAL_TIMESTAMP) {
-                _mintedBeforeReveal[mintIndex] = true;
-            }
-            _safeMint(msg.sender, mintIndex);
-        }
-
-        /**
-        * Source of randomness. Theoretical miner withhold manipulation possible but should be sufficient in a pragmatic sense
-        */
-        if (startingIndexBlock == 0 && (totalSupply() == MAX_NFT_SUPPLY || block.timestamp >= REVEAL_TIMESTAMP)) {
-            startingIndexBlock = block.number;
-        }
+    function addNewCar(uint256 price) onlyOwner external {
+        uint mintIndex = totalSupply();
+        _safeMint(msg.sender, mintIndex);
+        _tokenPrice[mintIndex] = price;
     }
 
     /**
-     * @dev Finalize starting index
-     */
-    function finalizeStartingIndex() public {
-        require(startingIndex == 0, "Starting index is already set");
-        require(startingIndexBlock != 0, "Starting index block must be set");
-        
-        startingIndex = uint(blockhash(startingIndexBlock)) % MAX_NFT_SUPPLY;
-        // Just a sanity case in the worst case if this function is called late (EVM only stores last 256 block hashes)
-        if (block.number.sub(startingIndexBlock) > 255) {
-            startingIndex = uint(blockhash(block.number-1)) % MAX_NFT_SUPPLY;
-        }
-        // Prevent default sequence
-        if (startingIndex == 0) {
-            startingIndex = startingIndex.add(1);
-        }
+    * @dev Sell the car
+    */
+    function sellCar(address to, uint256 tokenId) onlyOwner external {
+        safeTransferFrom(_msgSender(), to, tokenId);
+        emit Sold(to, tokenId);
     }
 
     /**
@@ -293,23 +239,14 @@ contract Masks is Context, Ownable, ERC165, IMasks, IERC721Metadata {
         require(sha256(bytes(newName)) != sha256(bytes(_tokenName[tokenId])), "New name is same as the current one");
         require(isNameReserved(newName) == false, "Name already reserved");
 
-        IERC20(_nctAddress).transferFrom(msg.sender, address(this), NAME_CHANGE_PRICE);
         // If already named, dereserve old name
         if (bytes(_tokenName[tokenId]).length > 0) {
             toggleReserveName(_tokenName[tokenId], false);
         }
         toggleReserveName(newName, true);
         _tokenName[tokenId] = newName;
-        IERC20(_nctAddress).burn(NAME_CHANGE_PRICE);
-        emit NameChange(tokenId, newName);
-    }
 
-    /**
-     * @dev Withdraw ether from this contract (Callable by owner)
-    */
-    function withdraw() onlyOwner public {
-        uint balance = address(this).balance;
-        msg.sender.transfer(balance);
+        emit NameChange(tokenId, newName);
     }
 
     /**
@@ -374,7 +311,7 @@ contract Masks is Context, Ownable, ERC165, IMasks, IERC721Metadata {
      */
     function safeTransferFrom(address from, address to, uint256 tokenId, bytes memory _data) public virtual override {
         require(_isApprovedOrOwner(_msgSender(), tokenId), "ERC721: transfer caller is not owner nor approved");
-        _safeTransfer(from, to, tokenId, _data);
+        _safeTransfer(from, to, tokenId);
     }
 
     /**
@@ -391,13 +328,11 @@ contract Masks is Context, Ownable, ERC165, IMasks, IERC721Metadata {
      * - `from` cannot be the zero address.
      * - `to` cannot be the zero address.
      * - `tokenId` token must exist and be owned by `from`.
-     * - If `to` refers to a smart contract, it must implement {IERC721Receiver-onERC721Received}, which is called upon a safe transfer.
      *
      * Emits a {Transfer} event.
      */
-    function _safeTransfer(address from, address to, uint256 tokenId, bytes memory _data) internal virtual {
+    function _safeTransfer(address from, address to, uint256 tokenId) internal virtual {
         _transfer(from, to, tokenId);
-        require(_checkOnERC721Received(from, to, tokenId, _data), "ERC721: transfer to non ERC721Receiver implementer");
     }
 
     /**
@@ -429,23 +364,13 @@ contract Masks is Context, Ownable, ERC165, IMasks, IERC721Metadata {
      * @dev Safely mints `tokenId` and transfers it to `to`.
      *
      * Requirements:
-     d*
+     *
      * - `tokenId` must not exist.
-     * - If `to` refers to a smart contract, it must implement {IERC721Receiver-onERC721Received}, which is called upon a safe transfer.
      *
      * Emits a {Transfer} event.
      */
     function _safeMint(address to, uint256 tokenId) internal virtual {
-        _safeMint(to, tokenId, "");
-    }
-
-    /**
-     * @dev Same as {xref-ERC721-_safeMint-address-uint256-}[`_safeMint`], with an additional `data` parameter which is
-     * forwarded in {IERC721Receiver-onERC721Received} to contract recipients.
-     */
-    function _safeMint(address to, uint256 tokenId, bytes memory _data) internal virtual {
         _mint(to, tokenId);
-        require(_checkOnERC721Received(address(0), to, tokenId, _data), "ERC721: transfer to non ERC721Receiver implementer");
     }
 
     /**
@@ -524,34 +449,6 @@ contract Masks is Context, Ownable, ERC165, IMasks, IERC721Metadata {
         _tokenOwners.set(tokenId, to);
 
         emit Transfer(from, to, tokenId);
-    }
-
-
-    /**
-     * @dev Internal function to invoke {IERC721Receiver-onERC721Received} on a target address.
-     * The call is not executed if the target address is not a contract.
-     *
-     * @param from address representing the previous owner of the given token ID
-     * @param to target address that will receive the tokens
-     * @param tokenId uint256 ID of the token to be transferred
-     * @param _data bytes optional data to send along with the call
-     * @return bool whether the call correctly returned the expected magic value
-     */
-    function _checkOnERC721Received(address from, address to, uint256 tokenId, bytes memory _data)
-        private returns (bool)
-    {
-        if (!to.isContract()) {
-            return true;
-        }
-        bytes memory returndata = to.functionCall(abi.encodeWithSelector(
-            IERC721Receiver(to).onERC721Received.selector,
-            _msgSender(),
-            from,
-            tokenId,
-            _data
-        ), "ERC721: transfer to non ERC721Receiver implementer");
-        bytes4 retval = abi.decode(returndata, (bytes4));
-        return (retval == _ERC721_RECEIVED);
     }
 
     function _approve(address to, uint256 tokenId) private {
