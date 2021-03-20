@@ -1,1 +1,3 @@
-# CarShop
+# HashMask
+
+Clone of HashMask
