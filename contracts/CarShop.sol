@@ -55,7 +55,8 @@ contract CarShop is Context, Ownable, ERC165, IERC721Metadata {
     string private _symbol;
 
     // Events
-    event NameChange (uint256 indexed maskIndex, string newName);
+    event NameChange (uint256 indexed carId, string newName);
+    event NewCar (uint256 indexed carId, uint256 price);
     event Sold (address indexed to, uint256 indexed carId);
 
     /**
@@ -154,13 +155,14 @@ contract CarShop is Context, Ownable, ERC165, IERC721Metadata {
         uint mintIndex = totalSupply();
         _safeMint(msg.sender, mintIndex);
         _carPrice[mintIndex] = price;
+        emit NewCar(mintIndex, price);
     }
 
     /**
     * @dev Sell the car
     */
     function sellCar(address to, uint256 carId) onlyOwner external {
-        safeTransferFrom(_msgSender(), to, carId);
+        _safeTransferFrom(_msgSender(), to, carId, "");
         emit Sold(to, carId);
     }
 
@@ -168,7 +170,8 @@ contract CarShop is Context, Ownable, ERC165, IERC721Metadata {
      * @dev Changes the name for car
      */
     function changeName(uint256 carId, string memory newName) onlyOwner external {
-        require(validateName(newName) == true, "Not a valid new name");
+        require(_exists(carId), "ERC721: operator for nonexistent car");
+        require(_validateName(newName) == true, "Not a valid new name");
         require(sha256(bytes(newName)) != sha256(bytes(_carName[carId])), "New name is same as the current one");
         require(isNameReserved(newName) == false, "Name already reserved");
 
@@ -225,24 +228,29 @@ contract CarShop is Context, Ownable, ERC165, IERC721Metadata {
     /**
      * @dev See {IERC721-transferFrom}.
      */
-    function transferFrom(address from, address to, uint256 carId) public virtual override {
-        //solhint-disable-next-line max-line-length
-        require(_isApprovedOrOwner(_msgSender(), carId), "ERC721: transfer caller is not owner nor approved");
+    function transferFrom(address from, address to, uint256 carId) external virtual override {
+        _safeTransferFrom(from, to, carId, "");
+    }
 
-        _transfer(from, to, carId);
+    function transfer(address to, uint256 carId) external {
+        _safeTransferFrom(_msgSender(), to, carId, "");
     }
 
     /**
      * @dev See {IERC721-safeTransferFrom}.
      */
-    function safeTransferFrom(address from, address to, uint256 carId) public virtual override {
-        safeTransferFrom(from, to, carId, "");
+    function safeTransferFrom(address from, address to, uint256 carId) external virtual override {
+        _safeTransferFrom(from, to, carId, "");
     }
 
     /**
      * @dev See {IERC721-safeTransferFrom}.
      */
-    function safeTransferFrom(address from, address to, uint256 carId, bytes memory _data) public virtual override {
+    function safeTransferFrom(address from, address to, uint256 carId, bytes memory _data) external virtual override {
+        _safeTransferFrom(from, to, carId, _data);
+    }
+
+    function _safeTransferFrom(address from, address to, uint256 carId, bytes memory _data) internal virtual {
         require(_isApprovedOrOwner(_msgSender(), carId), "ERC721: transfer caller is not owner nor approved");
         _safeTransfer(from, to, carId);
     }
@@ -265,6 +273,7 @@ contract CarShop is Context, Ownable, ERC165, IERC721Metadata {
      * Emits a {Transfer} event.
      */
     function _safeTransfer(address from, address to, uint256 carId) internal virtual {
+        require(_exists(carId), "ERC721: operator for nonexistent car");
         _transfer(from, to, carId);
     }
 
@@ -416,7 +425,11 @@ contract CarShop is Context, Ownable, ERC165, IERC721Metadata {
     /**
      * @dev Check if the name string is valid (Alphanumeric and spaces without leading or trailing space)
      */
-    function validateName(string memory str) public pure returns (bool){
+    function validateName(string memory str) external pure returns (bool){
+        return _validateName(str);
+    }
+
+    function _validateName(string memory str) internal pure returns (bool){
         bytes memory b = bytes(str);
         if(b.length < 1) return false;
         if(b.length > 25) return false; // Cannot be longer than 25 characters
