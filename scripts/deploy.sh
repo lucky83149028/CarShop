@@ -20,7 +20,7 @@ async function main() {
   const CarShop = await hre.ethers.getContractFactory("CarShop");
   const cs = await CarShop.deploy(name, symbol);
 
-  await cs .deployed();
+  await cs.deployed();
 
   console.log("CarShop deployed to:", cs.address);
 }
