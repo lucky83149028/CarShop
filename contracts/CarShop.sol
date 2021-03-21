@@ -69,7 +69,7 @@ contract CarShop is Context, Ownable, ERC165, IERC721Metadata {
     /**
      * @dev See {IERC721-balanceOf}.
      */
-    function balanceOf(address owner) public view override returns (uint256) {
+    function balanceOf(address owner) external view override returns (uint256) {
         require(owner != address(0), "ERC721: balance query for the zero address");
 
         return _holderCars[owner].length();
@@ -85,14 +85,14 @@ contract CarShop is Context, Ownable, ERC165, IERC721Metadata {
     /**
      * @dev See {IERC721Metadata-name}.
      */
-    function name() public view override returns (string memory) {
+    function name() external view override returns (string memory) {
         return _name;
     }
 
     /**
      * @dev See {IERC721Metadata-symbol}.
      */
-    function symbol() public view override returns (string memory) {
+    function symbol() external view override returns (string memory) {
         return _symbol;
     }
 
@@ -106,7 +106,7 @@ contract CarShop is Context, Ownable, ERC165, IERC721Metadata {
     /**
      * @dev See {IERC721Enumerable-tokenOfOwnerByIndex}.
      */
-    function tokenOfOwnerByIndex(address owner, uint256 index) public view returns (uint256) {
+    function tokenOfOwnerByIndex(address owner, uint256 index) external view returns (uint256) {
         return _holderCars[owner].at(index);
     }
 
@@ -121,7 +121,7 @@ contract CarShop is Context, Ownable, ERC165, IERC721Metadata {
     /**
      * @dev See {IERC721Enumerable-tokenByIndex}.
      */
-    function tokenByIndex(uint256 index) public view returns (uint256) {
+    function tokenByIndex(uint256 index) external view returns (uint256) {
         (uint256 carId, ) = _carOwners.at(index);
         return carId;
     }
@@ -129,7 +129,7 @@ contract CarShop is Context, Ownable, ERC165, IERC721Metadata {
     /**
      * @dev Returns name of the NFT at index.
      */
-    function tokenNameByIndex(uint256 index) public view returns (string memory) {
+    function carNameByIndex(uint256 index) external view returns (string memory) {
         return _carName[index];
     }
 
@@ -185,7 +185,7 @@ contract CarShop is Context, Ownable, ERC165, IERC721Metadata {
     /**
      * @dev See {IERC721-approve}.
      */
-    function approve(address to, uint256 carId) public virtual override {
+    function approve(address to, uint256 carId) external virtual override {
         address owner = ownerOf(carId);
         require(to != owner, "ERC721: approval to current owner");
 
@@ -208,7 +208,7 @@ contract CarShop is Context, Ownable, ERC165, IERC721Metadata {
     /**
      * @dev See {IERC721-setApprovalForAll}.
      */
-    function setApprovalForAll(address operator, bool approved) public virtual override {
+    function setApprovalForAll(address operator, bool approved) external virtual override {
         require(operator != _msgSender(), "ERC721: approve to caller");
 
         _operatorApprovals[_msgSender()][operator] = approved;
